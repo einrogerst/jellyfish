@@ -2,7 +2,8 @@ import unicodedata
 from collections import defaultdict
 from itertools import zip_longest
 from .porter import Stemmer
-
+from unidecode import unidecode
+from functools import lru_cache
 
 def _normalize(s):
     return unicodedata.normalize("NFKD", s)
@@ -38,6 +39,51 @@ def levenshtein_distance(s1, s2):
             cur[c] = min(edit, deletion, insertion)
 
     return cur[-1]
+
+
+@lru_cache(maxsize=2048)
+def _char_weigthed_diff(c1, c2, case_swap, diacritic_removal, non_word_swap):
+    # case
+    if c1.lower()==c2.lower():
+        return case_swap
+    # diacritic
+    if unidecode(c1).lower()==unidecode(c2).lower():
+        return diacritic_removal
+    # non-word
+    if regex.match(r"(?=\PL)(?=\PN).", c1) and regex.match(r"(?=\PL)(?=\PN).", c2):
+        return non_word_swap
+    return 1
+
+
+def weigthed_levenshtein_distance(s1, s2, delete=1, insert=1, case_swap=0.5, diacritic_removal=0.5, non_word_swap=0):
+    _check_type(s1)
+    _check_type(s2)
+
+    if s1 == s2:
+        return 0
+    rows = len(s1) + 1
+    cols = len(s2) + 1
+
+    if not s1:
+        return cols - 1
+    if not s2:
+        return rows - 1
+
+    prev = None
+    cur = range(cols)
+    for r in range(1, rows):
+        prev, cur = cur, [r] + [0] * (cols - 1)
+        for c in range(1, cols):
+            deletion = prev[c] + delete
+            insertion = cur[c - 1] + insert
+            edit = prev[c - 1] + (0 if s1[r - 1] == s2[c - 1] else _char_weigthed_diff(
+                s1[r - 1], s2[c - 1], 
+                case_swap=case_swap, 
+                diacritic_removal=diacritic_removal, 
+                non_word_swap=non_word_swap))
+            cur[c] = min(edit, deletion, insertion)
+
+    return round(cur[-1], 2)
 
 
 def _jaro_winkler(s1, s2, long_tolerance, winklerize):
